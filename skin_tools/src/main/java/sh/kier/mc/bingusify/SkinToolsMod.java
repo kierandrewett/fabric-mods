@@ -4,6 +4,7 @@ import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
 import com.mojang.authlib.properties.PropertyMap;
 import com.mojang.authlib.yggdrasil.ProfileResult;
+import com.google.common.collect.ArrayListMultimap;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
@@ -11,6 +12,7 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.command.permission.PermissionLevel;
+import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.network.packet.s2c.play.PlayerListS2CPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.OperatorEntry;
@@ -20,6 +22,7 @@ import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
@@ -46,8 +49,10 @@ public final class SkinToolsMod implements ModInitializer {
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayerEntity player = handler.player;
             rememberOriginalSkin(player);
-            applyEffectiveSkin(player);
-            refreshPlayerList(server, List.of(player));
+            if (hasEffectiveOverride(player)) {
+                applyEffectiveSkin(player);
+                refreshPlayerList(server, List.of(player));
+            }
         });
     }
 
@@ -147,20 +152,24 @@ public final class SkinToolsMod implements ModInitializer {
 
     private static void applyEffectiveSkin(ServerPlayerEntity player) {
         if (globalSkinEnabled && !globalSkinTextures.isEmpty()) {
-            setTextures(player.getGameProfile(), globalSkinTextures);
+            setTextures(player, globalSkinTextures);
             return;
         }
 
         List<Property> personal = personalSkins.get(player.getUuid());
         if (personal != null) {
-            setTextures(player.getGameProfile(), personal);
+            setTextures(player, personal);
             return;
         }
 
         List<Property> original = originalSkins.get(player.getUuid());
         if (original != null) {
-            setTextures(player.getGameProfile(), original);
+            setTextures(player, original);
         }
+    }
+
+    private static boolean hasEffectiveOverride(ServerPlayerEntity player) {
+        return (globalSkinEnabled && !globalSkinTextures.isEmpty()) || personalSkins.containsKey(player.getUuid());
     }
 
     private static void rememberOriginalSkin(ServerPlayerEntity player) {
@@ -196,12 +205,33 @@ public final class SkinToolsMod implements ModInitializer {
         return copyTextures(result.profile());
     }
 
-    private static void setTextures(GameProfile profile, Collection<Property> textures) {
-        PropertyMap properties = profile.properties();
+    private static void setTextures(ServerPlayerEntity player, Collection<Property> textures) {
+        GameProfile profile = player.getGameProfile();
+        PropertyMap properties = new PropertyMap(ArrayListMultimap.create(profile.properties()));
         properties.removeAll(TEXTURES);
         for (Property texture : textures) {
             properties.put(TEXTURES, texture);
         }
+
+        replaceGameProfile(player, new GameProfile(profile.id(), profile.name(), properties));
+    }
+
+    private static void replaceGameProfile(ServerPlayerEntity player, GameProfile profile) {
+        for (Class<?> type = PlayerEntity.class; type != null; type = type.getSuperclass()) {
+            for (Field field : type.getDeclaredFields()) {
+                if (field.getType() == GameProfile.class) {
+                    try {
+                        field.setAccessible(true);
+                        field.set(player, profile);
+                        return;
+                    } catch (IllegalAccessException exception) {
+                        throw new IllegalStateException("Unable to update player game profile.", exception);
+                    }
+                }
+            }
+        }
+
+        throw new IllegalStateException("Unable to find player game profile field.");
     }
 
     private static boolean canUseGlobalSkin(ServerCommandSource source) {

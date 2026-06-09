@@ -228,8 +228,12 @@ public final class SkinToolsMod implements ModInitializer {
 
     private static void setTextures(ServerPlayerEntity player, Collection<Property> textures) {
         GameProfile profile = player.getGameProfile();
-        PropertyMap properties = new PropertyMap(ArrayListMultimap.create(profile.properties()));
-        properties.removeAll(TEXTURES);
+        PropertyMap properties = new PropertyMap(ArrayListMultimap.create());
+        for (Map.Entry<String, Property> property : profile.properties().entries()) {
+            if (!TEXTURES.equals(property.getKey())) {
+                properties.put(property.getKey(), property.getValue());
+            }
+        }
         for (Property texture : textures) {
             properties.put(TEXTURES, texture);
         }

@@ -12,7 +12,9 @@ import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
+import net.fabricmc.fabric.api.util.TriState;
 import net.fabricmc.loader.api.FabricLoader;
+import me.lucko.fabric.api.permissions.v0.PermissionCheckEvent;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.ItemStack;
@@ -56,6 +58,7 @@ public final class VisitorProtectionMod implements ModInitializer {
         loadConfig();
         registerCommands();
         registerEvents();
+        registerPermissionProvider();
     }
 
     private static void registerCommands() {
@@ -206,6 +209,21 @@ public final class VisitorProtectionMod implements ModInitializer {
         });
     }
 
+    private static void registerPermissionProvider() {
+        PermissionCheckEvent.EVENT.register((source, permission) -> {
+            if (!isWorldEditPermission(permission) || !(source instanceof ServerCommandSource serverSource)) {
+                return TriState.DEFAULT;
+            }
+
+            ServerPlayerEntity player = serverSource.getPlayer();
+            if (player == null || !canEdit(player)) {
+                return TriState.DEFAULT;
+            }
+
+            return TriState.TRUE;
+        });
+    }
+
     private static boolean canEdit(ServerPlayerEntity player) {
         if (!config.enabled()) {
             return true;
@@ -220,6 +238,11 @@ public final class VisitorProtectionMod implements ModInitializer {
         }
 
         return builderNames.contains(player.getGameProfile().name().toLowerCase(Locale.ROOT));
+    }
+
+    private static boolean isWorldEditPermission(String permission) {
+        String normalized = permission.toLowerCase(Locale.ROOT);
+        return normalized.equals("worldedit") || normalized.equals("worldedit.*") || normalized.startsWith("worldedit.");
     }
 
     private static void notifyDenied(ServerPlayerEntity player) {

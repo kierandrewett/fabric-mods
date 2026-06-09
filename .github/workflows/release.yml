@@ -36,7 +36,7 @@ jobs:
       - name: Prepare release jar
         run: |
           mkdir -p dist
-          cp build/libs/skin-tools-*.jar dist/skin-tools.jar
+          cp "$(find build/libs -maxdepth 1 -type f -name 'skin-tools-*.jar' ! -name '*-sources.jar' -print -quit)" dist/skin-tools.jar
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4

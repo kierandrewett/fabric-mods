@@ -20,10 +20,13 @@ import net.minecraft.server.PlayerManager;
 import net.minecraft.server.PlayerConfigEntry;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerChunkLoadingManager;
 import net.minecraft.text.Text;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sh.kier.mc.bingusify.mixin.PlayerEntityAccessor;
+import sh.kier.mc.bingusify.mixin.ServerChunkLoadingManagerAccessor;
+import sh.kier.mc.bingusify.mixin.ServerEntityTrackerAccessor;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -274,6 +277,23 @@ public final class SkinToolsMod implements ModInitializer {
         for (ServerPlayerEntity viewer : playerManager.getPlayerList()) {
             viewer.networkHandler.sendPacket(removePacket);
             viewer.networkHandler.sendPacket(addPacket);
+            refreshTrackedEntities(viewer, changedPlayers);
+        }
+    }
+
+    private static void refreshTrackedEntities(ServerPlayerEntity viewer, Collection<ServerPlayerEntity> changedPlayers) {
+        for (ServerPlayerEntity changedPlayer : changedPlayers) {
+            ServerChunkLoadingManager chunkLoadingManager = changedPlayer.getEntityWorld().getChunkManager().chunkLoadingManager;
+            Object tracker = ((ServerChunkLoadingManagerAccessor) chunkLoadingManager)
+                .skin_tools$getEntityTrackers()
+                .get(changedPlayer.getId());
+            if (tracker == null) {
+                continue;
+            }
+
+            ServerEntityTrackerAccessor trackerAccessor = (ServerEntityTrackerAccessor) tracker;
+            trackerAccessor.skin_tools$stopTracking(viewer);
+            trackerAccessor.skin_tools$updateTrackedStatus(viewer);
         }
     }
 }

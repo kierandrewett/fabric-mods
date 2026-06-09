@@ -3,7 +3,9 @@
   "package": "sh.kier.mc.bingusify.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "PlayerEntityAccessor"
+    "PlayerEntityAccessor",
+    "ServerChunkLoadingManagerAccessor",
+    "ServerEntityTrackerAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

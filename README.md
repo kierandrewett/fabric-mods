@@ -5,16 +5,19 @@ Local Fabric mods for the Minecraft stack.
 ## Mods
 
 - `skin_tools`: adds `/globalskin`, `/skin`, and `/help`.
+- `visitor_protection`: adds `/buildlist` and lets visitors join without being able to edit the world.
 
 ## Build
 
 ```sh
 cd skin_tools
 ./gradlew clean build
+cd ../visitor_protection
+gradle clean build
 ```
 
-The built jar is written to `skin_tools/build/libs/`.
+The built jars are written to each mod's `build/libs/` directory.
 
 ## Release
 
-Push a tag like `v1.0.0` to build `skin_tools` and publish the jar to GitHub Releases.
+Push a tag like `v1.0.0` to build the Fabric mods and publish stable jars to GitHub Releases.

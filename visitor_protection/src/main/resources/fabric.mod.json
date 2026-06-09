@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "visitor_protection",
+  "version": "${version}",
+  "name": "Visitor Protection",
+  "description": "Lets anyone join while only configured builders can edit the world.",
+  "authors": [
+    "kier.sh"
+  ],
+  "contact": {},
+  "license": "MIT",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "sh.kier.mc.visitorprotection.VisitorProtectionMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "fabric-api": "*",
+    "minecraft": "1.21.11"
+  }
+}

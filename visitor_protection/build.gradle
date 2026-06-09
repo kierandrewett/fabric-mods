@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "sh.kier.mc"
-version = "1.0.1"
+version = "1.0.2"
 
 base {
     archivesName = "visitor-protection"

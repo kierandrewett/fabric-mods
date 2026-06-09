@@ -5,7 +5,7 @@ Local Fabric mods for the Minecraft stack.
 ## Mods
 
 - `skin_tools`: adds `/globalskin`, `/skin`, and `/help`.
-- `visitor_protection`: adds `/buildlist`, lets visitors join without being able to edit the world, and grants builders WorldEdit permissions without LuckPerms.
+- `visitor_protection`: adds `/buildlist`, lets visitors join without being able to edit the world, expires command-added builders after 14 days, and grants builders WorldEdit permissions without LuckPerms.
 
 ## Build
 

@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "sh.kier.mc"
-version = "1.0.5"
+version = "1.0.7"
 
 base {
     archivesName = "skin-tools"

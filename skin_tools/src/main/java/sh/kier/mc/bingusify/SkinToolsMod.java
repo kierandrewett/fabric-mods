@@ -13,6 +13,7 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.command.permission.PermissionLevel;
 import net.minecraft.network.packet.s2c.play.PlayerListS2CPacket;
+import net.minecraft.network.packet.s2c.play.PlayerRemoveS2CPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.OperatorEntry;
 import net.minecraft.server.PlayerManager;
@@ -257,7 +258,11 @@ public final class SkinToolsMod implements ModInitializer {
 
     private static void refreshPlayerList(MinecraftServer server, Collection<ServerPlayerEntity> changedPlayers) {
         PlayerManager playerManager = server.getPlayerManager();
-        PlayerListS2CPacket packet = new PlayerListS2CPacket(
+        List<UUID> changedProfileIds = changedPlayers.stream()
+            .map(ServerPlayerEntity::getUuid)
+            .toList();
+        PlayerRemoveS2CPacket removePacket = new PlayerRemoveS2CPacket(changedProfileIds);
+        PlayerListS2CPacket addPacket = new PlayerListS2CPacket(
             EnumSet.of(
                 PlayerListS2CPacket.Action.ADD_PLAYER,
                 PlayerListS2CPacket.Action.UPDATE_DISPLAY_NAME,
@@ -267,7 +272,8 @@ public final class SkinToolsMod implements ModInitializer {
         );
 
         for (ServerPlayerEntity viewer : playerManager.getPlayerList()) {
-            viewer.networkHandler.sendPacket(packet);
+            viewer.networkHandler.sendPacket(removePacket);
+            viewer.networkHandler.sendPacket(addPacket);
         }
     }
 }

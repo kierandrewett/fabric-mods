@@ -3,12 +3,13 @@ package sh.kier.mc.bingusify;
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
 import com.mojang.authlib.properties.PropertyMap;
+import com.mojang.authlib.yggdrasil.ProfileResult;
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
-import net.minecraft.command.argument.EntityArgumentType;
 import net.minecraft.command.permission.PermissionLevel;
 import net.minecraft.network.packet.s2c.play.PlayerListS2CPacket;
 import net.minecraft.server.MinecraftServer;
@@ -31,7 +32,6 @@ import static net.minecraft.server.command.CommandManager.argument;
 import static net.minecraft.server.command.CommandManager.literal;
 
 public final class SkinToolsMod implements ModInitializer {
-    private static final String DEFAULT_GLOBAL_SOURCE_PLAYER = "FirefoxBrowser";
     private static final String TEXTURES = "textures";
 
     private static boolean globalSkinEnabled = false;
@@ -55,39 +55,29 @@ public final class SkinToolsMod implements ModInitializer {
         dispatcher.register(literal("globalskin")
             .requires(SkinToolsMod::canUseGlobalSkin)
             .then(literal("set")
-                .executes(context -> setGlobalSkin(context.getSource(), DEFAULT_GLOBAL_SOURCE_PLAYER))
-                .then(argument("player", EntityArgumentType.player())
+                .then(argument("username", StringArgumentType.word())
                     .executes(context -> setGlobalSkin(
                         context.getSource(),
-                        EntityArgumentType.getPlayer(context, "player")
+                        StringArgumentType.getString(context, "username")
                     ))))
             .then(literal("clear")
                 .executes(context -> clearGlobalSkin(context.getSource()))));
 
         dispatcher.register(literal("skin")
             .then(literal("set")
-                .then(argument("player", EntityArgumentType.player())
+                .then(argument("username", StringArgumentType.word())
                     .executes(context -> setPersonalSkin(
                         context.getSource(),
-                        EntityArgumentType.getPlayer(context, "player")
+                        StringArgumentType.getString(context, "username")
                     ))))
             .then(literal("clear")
                 .executes(context -> clearPersonalSkin(context.getSource()))));
     }
 
-    private static int setGlobalSkin(ServerCommandSource source, String playerName) {
-        ServerPlayerEntity player = source.getServer().getPlayerManager().getPlayer(playerName);
-        if (player == null) {
-            source.sendError(Text.literal(playerName + " must be online before setting the global skin."));
-            return 0;
-        }
-        return setGlobalSkin(source, player);
-    }
-
-    private static int setGlobalSkin(ServerCommandSource source, ServerPlayerEntity player) {
-        List<Property> textures = copyTextures(player.getGameProfile());
+    private static int setGlobalSkin(ServerCommandSource source, String username) {
+        List<Property> textures = resolveSkinTextures(source.getServer(), username);
         if (textures.isEmpty()) {
-            source.sendError(Text.literal(player.getName().getString() + " does not currently have a skin texture property."));
+            source.sendError(Text.literal("Could not find a skin for " + username + ". Check the username and try again."));
             return 0;
         }
 
@@ -101,7 +91,7 @@ public final class SkinToolsMod implements ModInitializer {
         }
         refreshPlayerList(server, server.getPlayerManager().getPlayerList());
 
-        source.sendFeedback(() -> Text.literal("Global skin set to " + player.getName().getString() + "."), true);
+        source.sendFeedback(() -> Text.literal("Global skin set to " + username + "."), true);
         return 1;
     }
 
@@ -124,11 +114,11 @@ public final class SkinToolsMod implements ModInitializer {
         return 1;
     }
 
-    private static int setPersonalSkin(ServerCommandSource source, ServerPlayerEntity skinSource) throws CommandSyntaxException {
+    private static int setPersonalSkin(ServerCommandSource source, String username) throws CommandSyntaxException {
         ServerPlayerEntity player = source.getPlayerOrThrow();
-        List<Property> textures = copyTextures(skinSource.getGameProfile());
+        List<Property> textures = resolveSkinTextures(source.getServer(), username);
         if (textures.isEmpty()) {
-            source.sendError(Text.literal(skinSource.getName().getString() + " does not currently have a skin texture property."));
+            source.sendError(Text.literal("Could not find a skin for " + username + ". Check the username and try again."));
             return 0;
         }
 
@@ -137,7 +127,7 @@ public final class SkinToolsMod implements ModInitializer {
         applyEffectiveSkin(player);
         refreshPlayerList(source.getServer(), List.of(player));
 
-        source.sendFeedback(() -> Text.literal("Your skin has been set to " + skinSource.getName().getString() + "."), false);
+        source.sendFeedback(() -> Text.literal("Your skin has been set to " + username + "."), false);
         return 1;
     }
 
@@ -179,6 +169,31 @@ public final class SkinToolsMod implements ModInitializer {
 
     private static List<Property> copyTextures(GameProfile profile) {
         return new ArrayList<>(profile.properties().get(TEXTURES));
+    }
+
+    private static List<Property> resolveSkinTextures(MinecraftServer server, String username) {
+        ServerPlayerEntity onlinePlayer = server.getPlayerManager().getPlayer(username);
+        if (onlinePlayer != null) {
+            List<Property> textures = copyTextures(onlinePlayer.getGameProfile());
+            if (!textures.isEmpty()) {
+                return textures;
+            }
+        }
+
+        return server.getApiServices()
+            .profileRepository()
+            .findProfileByName(username)
+            .map(profile -> fetchSkinTextures(server, profile.id()))
+            .orElse(List.of());
+    }
+
+    private static List<Property> fetchSkinTextures(MinecraftServer server, UUID uuid) {
+        ProfileResult result = server.getApiServices().sessionService().fetchProfile(uuid, false);
+        if (result == null) {
+            return List.of();
+        }
+
+        return copyTextures(result.profile());
     }
 
     private static void setTextures(GameProfile profile, Collection<Property> textures) {

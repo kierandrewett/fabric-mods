@@ -33,11 +33,16 @@ jobs:
       - name: Build
         run: ./gradlew clean build
 
+      - name: Prepare release jar
+        run: |
+          mkdir -p dist
+          cp build/libs/skin-tools-*.jar dist/skin-tools.jar
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: skin-tools
-          path: skin_tools/build/libs/skin-tools-*.jar
+          path: skin_tools/dist/skin-tools.jar
 
       - name: Release tagged build
         if: startsWith(github.ref, 'refs/tags/')
@@ -46,7 +51,7 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           gh release create "$TAG_NAME" \
-            build/libs/skin-tools-*.jar \
+            dist/skin-tools.jar \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG_NAME" \
             --notes "Automated Fabric mod build for $TAG_NAME."

@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "sh.kier.mc"
-version = "1.0.0"
+version = "1.0.2"
 
 base {
     archivesName = "skin-tools"
@@ -17,13 +17,18 @@ dependencies {
 }
 
 java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
-    }
     withSourcesJar()
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.release = 21
     options.encoding = "UTF-8"
+}
+
+processResources {
+    inputs.property "version", project.version
+
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
 }

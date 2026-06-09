@@ -1,0 +1,11 @@
+{
+  "required": true,
+  "package": "sh.kier.mc.bingusify.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "PlayerEntityAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

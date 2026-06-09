@@ -1,0 +1,29 @@
+plugins {
+    id "fabric-loom" version "1.17.7"
+}
+
+group = "sh.kier.mc"
+version = "1.0.0"
+
+base {
+    archivesName = "skin-tools"
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:1.21.11"
+    mappings "net.fabricmc:yarn:1.21.11+build.6:v2"
+    modImplementation "net.fabricmc:fabric-loader:0.19.3"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:0.141.4+1.21.11"
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+    options.encoding = "UTF-8"
+}

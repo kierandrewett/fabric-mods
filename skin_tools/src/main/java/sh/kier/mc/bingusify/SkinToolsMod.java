@@ -228,7 +228,7 @@ public final class SkinToolsMod implements ModInitializer {
 
     private static void setTextures(ServerPlayerEntity player, Collection<Property> textures) {
         GameProfile profile = player.getGameProfile();
-        PropertyMap properties = new PropertyMap(ArrayListMultimap.create());
+        ArrayListMultimap<String, Property> properties = ArrayListMultimap.create();
         for (Map.Entry<String, Property> property : profile.properties().entries()) {
             if (!TEXTURES.equals(property.getKey())) {
                 properties.put(property.getKey(), property.getValue());
@@ -238,7 +238,7 @@ public final class SkinToolsMod implements ModInitializer {
             properties.put(TEXTURES, texture);
         }
 
-        ((PlayerEntityAccessor) player).skin_tools$setGameProfile(new GameProfile(profile.id(), profile.name(), properties));
+        ((PlayerEntityAccessor) player).skin_tools$setGameProfile(new GameProfile(profile.id(), profile.name(), new PropertyMap(properties)));
     }
 
     private static boolean canUseGlobalSkin(ServerCommandSource source) {

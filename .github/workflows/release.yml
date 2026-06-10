@@ -9,10 +9,32 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
-  skin-tools:
-    name: Build Fabric mods
+  build:
+    name: Build ${{ matrix.name }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: skin_tools
+            directory: skin_tools
+            gradlew: ./gradlew
+            jar_pattern: skin-tools-*.jar
+            output: skin-tools.jar
+          - name: visitor_protection
+            directory: visitor_protection
+            gradlew: ../skin_tools/gradlew
+            jar_pattern: visitor-protection-*.jar
+            output: visitor-protection.jar
+          - name: kier_worlds
+            directory: kier_worlds
+            gradlew: ../skin_tools/gradlew
+            jar_pattern: kier-worlds-*.jar
+            output: kier-worlds.jar
 
     steps:
       - name: Check out repository
@@ -27,24 +49,33 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build skin_tools
-        working-directory: skin_tools
-        run: ./gradlew clean build
+      - name: Build ${{ matrix.name }}
+        working-directory: ${{ matrix.directory }}
+        run: ${{ matrix.gradlew }} clean build
 
-      - name: Build visitor_protection
-        working-directory: visitor_protection
-        run: ../skin_tools/gradlew clean build
-
-      - name: Build kier_worlds
-        working-directory: kier_worlds
-        run: ../skin_tools/gradlew clean build
-
-      - name: Prepare release jars
+      - name: Prepare jar artifact
         run: |
           mkdir -p dist
-          cp "$(find skin_tools/build/libs -maxdepth 1 -type f -name 'skin-tools-*.jar' ! -name '*-sources.jar' -print -quit)" dist/skin-tools.jar
-          cp "$(find visitor_protection/build/libs -maxdepth 1 -type f -name 'visitor-protection-*.jar' ! -name '*-sources.jar' -print -quit)" dist/visitor-protection.jar
-          cp "$(find kier_worlds/build/libs -maxdepth 1 -type f -name 'kier-worlds-*.jar' ! -name '*-sources.jar' -print -quit)" dist/kier-worlds.jar
+          cp "$(find "${{ matrix.directory }}/build/libs" -maxdepth 1 -type f -name '${{ matrix.jar_pattern }}' ! -name '*-sources.jar' -print -quit)" "dist/${{ matrix.output }}"
+
+      - name: Upload mod jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-jar
+          path: dist/${{ matrix.output }}
+
+  bundle:
+    name: Bundle Fabric mods
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download mod jars
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-jar"
+          path: dist
+          merge-multiple: true
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -52,16 +83,26 @@ jobs:
           name: fabric-mods
           path: dist/*.jar
 
+  release:
+    name: Release tagged build
+    runs-on: ubuntu-latest
+    needs: bundle
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download bundled jars
+        uses: actions/download-artifact@v4
+        with:
+          name: fabric-mods
+          path: dist
+
       - name: Release tagged build
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
           gh release create "$TAG_NAME" \
-            dist/skin-tools.jar \
-            dist/visitor-protection.jar \
-            dist/kier-worlds.jar \
+            dist/*.jar \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG_NAME" \
             --notes "Automated Fabric mod build for $TAG_NAME."

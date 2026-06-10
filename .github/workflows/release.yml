@@ -35,11 +35,16 @@ jobs:
         working-directory: visitor_protection
         run: ../skin_tools/gradlew clean build
 
+      - name: Build kier_worlds
+        working-directory: kier_worlds
+        run: ../skin_tools/gradlew clean build
+
       - name: Prepare release jars
         run: |
           mkdir -p dist
           cp "$(find skin_tools/build/libs -maxdepth 1 -type f -name 'skin-tools-*.jar' ! -name '*-sources.jar' -print -quit)" dist/skin-tools.jar
           cp "$(find visitor_protection/build/libs -maxdepth 1 -type f -name 'visitor-protection-*.jar' ! -name '*-sources.jar' -print -quit)" dist/visitor-protection.jar
+          cp "$(find kier_worlds/build/libs -maxdepth 1 -type f -name 'kier-worlds-*.jar' ! -name '*-sources.jar' -print -quit)" dist/kier-worlds.jar
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -56,6 +61,7 @@ jobs:
           gh release create "$TAG_NAME" \
             dist/skin-tools.jar \
             dist/visitor-protection.jar \
+            dist/kier-worlds.jar \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG_NAME" \
             --notes "Automated Fabric mod build for $TAG_NAME."

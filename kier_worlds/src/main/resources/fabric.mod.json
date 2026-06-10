@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "kier_worlds",
+  "version": "${version}",
+  "name": "Kier Worlds",
+  "description": "Named server dimensions with simple admin commands.",
+  "authors": [
+    "kier.sh"
+  ],
+  "contact": {},
+  "license": "MIT",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "sh.kier.mc.kierworlds.KierWorldsMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "fabric-api": "*",
+    "minecraft": "1.21.11"
+  }
+}

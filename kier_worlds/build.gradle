@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "sh.kier.mc"
-version = "1.0.2"
+version = "1.0.3"
 
 base {
     archivesName = "kier-worlds"

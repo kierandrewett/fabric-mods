@@ -6,6 +6,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.mojang.serialization.JsonOps;
 import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
@@ -20,6 +21,7 @@ import net.minecraft.command.argument.IdentifierArgumentType;
 import net.minecraft.command.argument.Vec3ArgumentType;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.minecraft.registry.RegistryOps;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.server.MinecraftServer;
@@ -35,10 +37,15 @@ import net.minecraft.util.Formatting;
 import net.minecraft.util.WorldSavePath;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.SaveProperties;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldProperties;
+import net.minecraft.world.biome.source.BiomeAccess;
+import net.minecraft.world.dimension.DimensionOptions;
+import net.minecraft.world.level.UnmodifiableLevelProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sh.kier.mc.kierworlds.mixin.MinecraftServerAccessor;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -109,6 +116,13 @@ public final class KierWorldsMod implements ModInitializer {
                                     StringArgumentType.getString(context, "template"),
                                     LongArgumentType.getLong(context, "seed")
                                 ))))))
+                .then(literal("load")
+                    .then(argument("name", IdentifierArgumentType.identifier())
+                        .suggests((context, builder) -> suggestManagedWorldNames(context.getSource(), builder))
+                        .executes(context -> loadWorldCommand(
+                            context.getSource(),
+                            input(context, "name")
+                        ))))
                 .then(literal("tp")
                     .then(argument("name", IdentifierArgumentType.identifier())
                         .suggests((context, builder) -> suggestWorlds(context.getSource(), builder))
@@ -179,12 +193,14 @@ public final class KierWorldsMod implements ModInitializer {
             return 0;
         }
 
+        JsonObject dimension;
         try {
+            dimension = dimensionJson(template, seed);
             writePackMetadata(source.getServer());
             Files.createDirectories(dimensionFile.getParent());
             Files.writeString(
                 dimensionFile,
-                GSON.toJson(dimensionJson(template, seed)) + "\n",
+                GSON.toJson(dimension) + "\n",
                 StandardCharsets.UTF_8
             );
         } catch (IllegalArgumentException exception) {
@@ -196,11 +212,27 @@ public final class KierWorldsMod implements ModInitializer {
             return 0;
         }
 
+        ServerWorld world;
+        try {
+            world = loadManagedWorld(source.getServer(), name, dimension);
+        } catch (IllegalArgumentException exception) {
+            source.sendError(Text.literal("Created world file, but could not load it now: " + exception.getMessage()));
+            source.sendFeedback(
+                () -> Text.literal("The world should still load after a full server restart if the datapack is valid.")
+                    .formatted(Formatting.YELLOW),
+                false
+            );
+            return 0;
+        }
+
+        String commandTarget = world.getRegistryKey().getValue().toString().startsWith(NAMESPACE + ":")
+            ? name
+            : world.getRegistryKey().getValue().toString();
         source.sendFeedback(
-            () -> Text.literal("Created world '" + name + "' using template '" + template + "'. Restart required. ")
-                .append(action("[info]", "/kworld info " + name, "Inspect " + NAMESPACE + ":" + name, Formatting.YELLOW))
+            () -> Text.literal("Created and loaded world '" + name + "' using template '" + template + "'. ")
+                .append(action("[tp]", "/kworld tp " + commandTarget, "Teleport to " + NAMESPACE + ":" + name, Formatting.AQUA))
                 .append(Text.literal(" "))
-                .append(action("[tp after restart]", "/kworld tp " + name, "Teleport after the server has restarted", Formatting.GRAY)),
+                .append(action("[info]", "/kworld info " + commandTarget, "Inspect " + NAMESPACE + ":" + name, Formatting.YELLOW)),
             true
         );
         return 1;
@@ -209,6 +241,39 @@ public final class KierWorldsMod implements ModInitializer {
     private static boolean canManageWorlds(ServerCommandSource source) {
         return source.getPermissions() instanceof LeveledPermissionPredicate permissions
             && permissions.getLevel().isAtLeast(PermissionLevel.GAMEMASTERS);
+    }
+
+    private static int loadWorldCommand(ServerCommandSource source, String rawName) {
+        RegistryKey<World> key = worldKeyForInput(rawName);
+        if (key == null) {
+            source.sendError(Text.literal("Invalid world name or identifier."));
+            return 0;
+        }
+
+        ServerWorld existing = source.getServer().getWorld(key);
+        if (existing != null) {
+            source.sendFeedback(() -> Text.literal("World '" + key.getValue() + "' is already loaded."), false);
+            return 1;
+        }
+
+        if (!managedWorldFileExists(source.getServer(), rawName)) {
+            source.sendError(Text.literal("No managed unloaded world named '" + rawName + "' exists."));
+            return 0;
+        }
+
+        ServerWorld world = getOrLoadWorld(source, rawName);
+        if (world == null) {
+            return 0;
+        }
+
+        String commandTarget = world.getRegistryKey().getValue().toString().startsWith(NAMESPACE + ":")
+            ? world.getRegistryKey().getValue().toString().substring((NAMESPACE + ":").length())
+            : world.getRegistryKey().getValue().toString();
+        source.sendFeedback(() -> Text.literal("Loaded world '" + world.getRegistryKey().getValue() + "'. ")
+            .append(action("[tp]", "/kworld tp " + commandTarget, "Teleport to " + world.getRegistryKey().getValue(), Formatting.AQUA))
+            .append(Text.literal(" "))
+            .append(action("[info]", "/kworld info " + commandTarget, "Inspect " + world.getRegistryKey().getValue(), Formatting.YELLOW)), true);
+        return 1;
     }
 
     private static int teleport(ServerCommandSource source, String rawName) {
@@ -242,9 +307,11 @@ public final class KierWorldsMod implements ModInitializer {
             return 0;
         }
 
-        ServerWorld world = source.getServer().getWorld(key);
+        ServerWorld world = getOrLoadWorld(source, rawName);
         if (world == null) {
-            source.sendError(Text.literal("World '" + rawName + "' is not loaded. Create it first, then restart the server."));
+            if (!managedWorldFileExists(source.getServer(), rawName)) {
+                source.sendError(Text.literal("World '" + rawName + "' is not loaded and no managed world file could be loaded."));
+            }
             return 0;
         }
 
@@ -260,9 +327,11 @@ public final class KierWorldsMod implements ModInitializer {
             return 0;
         }
 
-        ServerWorld world = source.getServer().getWorld(key);
+        ServerWorld world = getOrLoadWorld(source, rawName);
         if (world == null) {
-            source.sendError(Text.literal("World '" + rawName + "' is not loaded. Create it first, then restart the server."));
+            if (!managedWorldFileExists(source.getServer(), rawName)) {
+                source.sendError(Text.literal("World '" + rawName + "' is not loaded and no managed world file could be loaded."));
+            }
             return 0;
         }
 
@@ -290,9 +359,11 @@ public final class KierWorldsMod implements ModInitializer {
             return 0;
         }
 
-        ServerWorld world = source.getServer().getWorld(key);
+        ServerWorld world = getOrLoadWorld(source, rawName);
         if (world == null) {
-            source.sendError(Text.literal("World '" + rawName + "' is not loaded."));
+            if (!managedWorldFileExists(source.getServer(), rawName)) {
+                source.sendError(Text.literal("World '" + rawName + "' is not loaded."));
+            }
             return 0;
         }
 
@@ -452,6 +523,14 @@ public final class KierWorldsMod implements ModInitializer {
                 .append(action("[tp]", "/kworld tp " + commandTarget, "Teleport to " + key.getValue(), Formatting.AQUA))
                 .append(Text.literal(" "))
                 .append(action("[setspawn]", "/kworld setspawn " + commandTarget, "Set this world's spawn to your current position", Formatting.YELLOW)), false);
+        } else if (managedFile != null && Files.exists(managedFile)) {
+            String commandTarget = key.getValue().toString().startsWith(NAMESPACE + ":")
+                ? key.getValue().toString().substring((NAMESPACE + ":").length())
+                : key.getValue().toString();
+            source.sendFeedback(() -> Text.literal("Actions: ")
+                .append(action("[load]", "/kworld load " + commandTarget, "Load " + key.getValue() + " without restarting", Formatting.GREEN))
+                .append(Text.literal(" "))
+                .append(action("[tp]", "/kworld tp " + commandTarget, "Load and teleport to " + key.getValue(), Formatting.AQUA)), false);
         }
 
         if (managedFile != null && Files.exists(managedFile)) {
@@ -488,7 +567,7 @@ public final class KierWorldsMod implements ModInitializer {
 
     private static MutableText worldListLine(String id, String commandTarget, boolean loaded, boolean managed) {
         Formatting statusColor = loaded ? Formatting.GREEN : Formatting.RED;
-        String status = loaded ? "loaded" : "restart needed";
+        String status = loaded ? "loaded" : "loadable";
         MutableText line = Text.literal(" - ").formatted(Formatting.DARK_GRAY)
             .append(action(id, "/kworld tp " + commandTarget, "Teleport to " + id, loaded ? Formatting.AQUA : Formatting.GRAY))
             .append(Text.literal(" [" + status + "]").formatted(statusColor));
@@ -503,6 +582,10 @@ public final class KierWorldsMod implements ModInitializer {
             .append(action("[info]", "/kworld info " + commandTarget, "Show info for " + id, Formatting.YELLOW));
 
         if (managed) {
+            if (!loaded) {
+                line.append(Text.literal(" "))
+                    .append(action("[load]", "/kworld load " + commandTarget, "Load " + id + " without restarting", Formatting.GREEN));
+            }
             line.append(Text.literal(" "))
                 .append(action("[delete]", "/kworld delete " + commandTarget, "Ask for delete confirmation", Formatting.RED));
         }
@@ -672,11 +755,84 @@ public final class KierWorldsMod implements ModInitializer {
     }
 
     private static Path managedFileForInput(MinecraftServer server, String rawName) {
-        String name = rawName.contains(":") ? null : normalizeWorldName(rawName);
+        String name = managedNameForInput(rawName);
         if (name == null) {
             return null;
         }
         return dimensionFile(server, name);
+    }
+
+    private static boolean managedWorldFileExists(MinecraftServer server, String rawName) {
+        Path file = managedFileForInput(server, rawName);
+        return file != null && Files.exists(file);
+    }
+
+    private static ServerWorld getOrLoadWorld(ServerCommandSource source, String rawName) {
+        RegistryKey<World> key = worldKeyForInput(rawName);
+        if (key == null) {
+            return null;
+        }
+
+        ServerWorld existing = source.getServer().getWorld(key);
+        if (existing != null) {
+            return existing;
+        }
+
+        String name = managedNameForInput(rawName);
+        if (name == null) {
+            return null;
+        }
+
+        Path dimensionFile = dimensionFile(source.getServer(), name);
+        if (!Files.exists(dimensionFile)) {
+            return null;
+        }
+
+        try {
+            JsonObject dimension = JsonParser.parseString(Files.readString(dimensionFile, StandardCharsets.UTF_8)).getAsJsonObject();
+            return loadManagedWorld(source.getServer(), name, dimension);
+        } catch (Exception exception) {
+            LOGGER.error("Failed to load managed world {}", name, exception);
+            source.sendError(Text.literal("Failed to load managed world '" + name + "': " + exception.getMessage()));
+            return null;
+        }
+    }
+
+    private static ServerWorld loadManagedWorld(MinecraftServer server, String name, JsonObject dimension) {
+        RegistryKey<World> key = worldKey(name);
+        ServerWorld existing = server.getWorld(key);
+        if (existing != null) {
+            return existing;
+        }
+
+        DimensionOptions options = decodeDimensionOptions(server, dimension);
+        SaveProperties saveProperties = server.getSaveProperties();
+        MinecraftServerAccessor serverAccess = (MinecraftServerAccessor) server;
+
+        ServerWorld world = new ServerWorld(
+            server,
+            serverAccess.kierWorlds$getWorkerExecutor(),
+            serverAccess.kierWorlds$getSession(),
+            new UnmodifiableLevelProperties(saveProperties, saveProperties.getMainWorldProperties()),
+            key,
+            options,
+            saveProperties.isDebugWorld(),
+            BiomeAccess.hashSeed(saveProperties.getGeneratorOptions().getSeed()),
+            List.of(),
+            false,
+            server.getOverworld().getRandomSequences()
+        );
+
+        serverAccess.kierWorlds$getWorlds().put(key, world);
+        world.getWorldBorder().setMaxRadius(server.getMaxWorldBorderRadius());
+        server.getPlayerManager().setMainWorld(world);
+        return world;
+    }
+
+    private static DimensionOptions decodeDimensionOptions(MinecraftServer server, JsonElement dimension) {
+        RegistryOps<JsonElement> ops = RegistryOps.of(JsonOps.INSTANCE, server.getRegistryManager());
+        return DimensionOptions.CODEC.parse(ops, dimension)
+            .getOrThrow(message -> new IllegalArgumentException("invalid dimension definition: " + message));
     }
 
     private static void writePackMetadata(MinecraftServer server) throws IOException {
@@ -732,6 +888,19 @@ public final class KierWorldsMod implements ModInitializer {
 
         String managedName = normalizeWorldName(normalized);
         return managedName == null ? null : worldKey(managedName);
+    }
+
+    private static String managedNameForInput(String rawName) {
+        String normalized = rawName.trim().toLowerCase(Locale.ROOT);
+        if (normalized.startsWith(NAMESPACE + ":")) {
+            return normalizeWorldName(normalized.substring((NAMESPACE + ":").length()));
+        }
+
+        if (normalized.contains(":")) {
+            return null;
+        }
+
+        return normalizeWorldName(normalized);
     }
 
     private static String stringProperty(JsonObject object, String name, String fallback) {

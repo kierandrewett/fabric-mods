@@ -6,18 +6,17 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.mojang.brigadier.StringReader;
-import com.mojang.brigadier.arguments.ArgumentType;
 import com.mojang.brigadier.arguments.LongArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
-import com.mojang.brigadier.exceptions.CommandSyntaxException;
-import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
+import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import net.minecraft.command.permission.LeveledPermissionPredicate;
 import net.minecraft.command.permission.PermissionLevel;
 import net.minecraft.command.CommandSource;
 import net.minecraft.command.argument.EntityArgumentType;
+import net.minecraft.command.argument.IdentifierArgumentType;
 import net.minecraft.command.argument.Vec3ArgumentType;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -46,7 +45,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
-import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -82,90 +80,90 @@ public final class KierWorldsMod implements ModInitializer {
                 .then(literal("current")
                     .executes(context -> showCurrentWorldInfo(context.getSource())))
                 .then(literal("info")
-                    .then(argument("name", token())
+                    .then(argument("name", IdentifierArgumentType.identifier())
                         .suggests((context, builder) -> suggestWorlds(context.getSource(), builder))
                         .executes(context -> showWorldInfo(
                             context.getSource(),
-                            token(context, "name")
+                            input(context, "name")
                         ))))
                 .then(literal("create")
-                    .then(argument("name", token())
+                    .then(argument("name", IdentifierArgumentType.identifier())
                         .executes(context -> createWorld(
                             context.getSource(),
-                            token(context, "name"),
+                            input(context, "name"),
                             "vanilla",
                             null
                         ))
-                        .then(argument("template", token())
+                        .then(argument("template", StringArgumentType.string())
                             .suggests((context, builder) -> suggestTemplates(builder))
                             .executes(context -> createWorld(
                                 context.getSource(),
-                                token(context, "name"),
-                                token(context, "template"),
+                                input(context, "name"),
+                                StringArgumentType.getString(context, "template"),
                                 null
                             ))
                             .then(argument("seed", LongArgumentType.longArg())
                                 .executes(context -> createWorld(
                                     context.getSource(),
-                                    token(context, "name"),
-                                    token(context, "template"),
+                                    input(context, "name"),
+                                    StringArgumentType.getString(context, "template"),
                                     LongArgumentType.getLong(context, "seed")
                                 ))))))
                 .then(literal("tp")
-                    .then(argument("name", token())
+                    .then(argument("name", IdentifierArgumentType.identifier())
                         .suggests((context, builder) -> suggestWorlds(context.getSource(), builder))
                         .executes(context -> teleport(
                             context.getSource(),
-                            token(context, "name")
+                            input(context, "name")
                         ))
                         .then(argument("pos", Vec3ArgumentType.vec3())
                             .executes(context -> teleport(
                                 context.getSource(),
-                                token(context, "name"),
+                                input(context, "name"),
                                 Vec3ArgumentType.getVec3(context, "pos")
                             ))
                             .then(argument("player", EntityArgumentType.player())
                                 .executes(context -> teleport(
                                     context.getSource(),
-                                    token(context, "name"),
+                                    input(context, "name"),
                                     Vec3ArgumentType.getVec3(context, "pos"),
                                     EntityArgumentType.getPlayer(context, "player")
                                 ))))
                         .then(argument("player", EntityArgumentType.player())
                             .executes(context -> teleport(
                                 context.getSource(),
-                                token(context, "name"),
+                                input(context, "name"),
                                 EntityArgumentType.getPlayer(context, "player")
                             )))))
                 .then(literal("setspawn")
-                    .then(argument("name", token())
+                    .then(argument("name", IdentifierArgumentType.identifier())
                         .suggests((context, builder) -> suggestWorlds(context.getSource(), builder))
                         .executes(context -> setSpawn(
                             context.getSource(),
-                            token(context, "name")
+                            input(context, "name")
                         ))))
                 .then(literal("delete")
-                    .then(argument("name", token())
+                    .then(argument("name", IdentifierArgumentType.identifier())
                         .suggests((context, builder) -> suggestManagedWorldNames(context.getSource(), builder))
                         .executes(context -> requestDeleteWorld(
                             context.getSource(),
-                            token(context, "name")
+                            input(context, "name")
                         ))
                         .then(literal("confirm")
                             .executes(context -> deleteWorld(
                                 context.getSource(),
-                                token(context, "name")
+                                input(context, "name")
                             )))))
                 .then(literal("templates")
                     .executes(context -> listTemplates(context.getSource())));
     }
 
-    private static ArgumentType<String> token() {
-        return new TokenArgumentType();
-    }
-
-    private static String token(com.mojang.brigadier.context.CommandContext<ServerCommandSource> context, String name) {
-        return context.getArgument(name, String.class);
+    private static String input(CommandContext<ServerCommandSource> context, String name) {
+        return context.getNodes().stream()
+            .filter(node -> node.getNode().getName().equals(name))
+            .findFirst()
+            .map(node -> node.getRange().get(context.getInput()))
+            .orElseGet(() -> IdentifierArgumentType.getIdentifier(context, name).toString());
     }
 
     private static int createWorld(ServerCommandSource source, String rawName, String template, Long seed) {
@@ -554,10 +552,11 @@ public final class KierWorldsMod implements ModInitializer {
     }
 
     private static MutableText templateLine(String template, String description) {
+        String commandTemplate = template.contains(":") ? "\"" + template + "\"" : template;
         return Text.literal(" - ").formatted(Formatting.DARK_GRAY)
             .append(Text.literal(template).formatted(Formatting.AQUA))
             .append(Text.literal(" "))
-            .append(suggestAction("[use]", "/kworld create new_world " + template, description, Formatting.GREEN))
+            .append(suggestAction("[use]", "/kworld create new_world " + commandTemplate, description, Formatting.GREEN))
             .append(Text.literal(" "))
             .append(copyAction("[copy]", template, "Copy template value", Formatting.GRAY))
             .append(Text.literal(" - " + description).formatted(Formatting.DARK_GRAY));
@@ -569,7 +568,7 @@ public final class KierWorldsMod implements ModInitializer {
             "amplified",
             "large_biomes",
             "flat",
-            "custom:minecraft:overworld:minecraft:overworld"
+            "\"custom:minecraft:overworld:minecraft:overworld\""
         ), builder);
     }
 
@@ -752,28 +751,4 @@ public final class KierWorldsMod implements ModInitializer {
         return normalized;
     }
 
-    private static final class TokenArgumentType implements ArgumentType<String> {
-        private static final SimpleCommandExceptionType EMPTY_TOKEN = new SimpleCommandExceptionType(
-            Text.literal("Expected a world name, dimension id, or template")
-        );
-
-        @Override
-        public String parse(StringReader reader) throws CommandSyntaxException {
-            int start = reader.getCursor();
-            while (reader.canRead() && !Character.isWhitespace(reader.peek())) {
-                reader.skip();
-            }
-
-            if (reader.getCursor() == start) {
-                throw EMPTY_TOKEN.createWithContext(reader);
-            }
-
-            return reader.getString().substring(start, reader.getCursor());
-        }
-
-        @Override
-        public Collection<String> getExamples() {
-            return List.of("wild", "minecraft:the_nether", "custom:minecraft:overworld:minecraft:overworld");
-        }
-    }
 }

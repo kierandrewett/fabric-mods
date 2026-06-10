@@ -35,6 +35,11 @@ jobs:
             gradlew: ../skin_tools/gradlew
             jar_pattern: kier-worlds-*.jar
             output: kier-worlds.jar
+          - name: ntfy
+            directory: ntfy
+            gradlew: ../skin_tools/gradlew
+            jar_pattern: ntfy-*.jar
+            output: ntfy.jar
 
     steps:
       - name: Check out repository

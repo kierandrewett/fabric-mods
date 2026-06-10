@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "ntfy",
+  "version": "${version}",
+  "name": "ntfy",
+  "description": "Sends ntfy alerts for player joins and leaves.",
+  "authors": [
+    "kier.sh"
+  ],
+  "contact": {},
+  "license": "MIT",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "sh.kier.mc.ntfy.NtfyMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "fabric-api": "*",
+    "minecraft": "1.21.11"
+  }
+}
